@@ -1,0 +1,25 @@
+{
+  "name": "kilo-all",
+  "version": "0.0.1",
+  "homepage": "https://github.com/shaunwest/kilo-all",
+  "authors": [
+    "Shaun West <shaunwest@gmail.com>"
+  ],
+  "description": "Full KiloJS Library",
+  "main": "dist/kilo-all.js",
+  "license": "MIT",
+  "private": true,
+  "ignore": [
+    "**/.*",
+    "node_modules",
+    "bower_components",
+    "test",
+    "tests"
+  ],
+  "devDependencies": {
+    "kilo": "git@github.com:shaunwest/kilo.git",
+    "kilo-extra": "git@github.com:shaunwest/kilo-extra.git",
+    "kilo-scheduler": "git@github.com:shaunwest/kilo-scheduler.git",
+    "kilo-flow": "git@github.com:shaunwest/kilo-flow.git"
+  }
+}
