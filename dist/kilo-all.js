@@ -39,9 +39,28 @@
     })(types[i]);
   }
 
+  function getInterceptor(interceptors, matchString) {
+    var i, interceptor, matches;
+    for(i = 0; i < interceptors.length; i++) {
+      interceptor = interceptors[i];
+      if(matches = matchString.match(interceptor.pattern)) {
+        return {key: matches[1], cb: interceptor.cb};
+      }
+    }
+    return null;
+  }
+
+  function intercept(module, interceptorFunc) {
+    if(interceptorFunc) {
+      return interceptorFunc(module);
+    }
+    return module;
+  }
+
   Injector = {
     unresolved: {},
     modules: {},
+    interceptors: [],
     register: function(key, deps, func, scope) {
       this.unresolve(key);
       this.unresolved[key] = {deps: deps, func: func, scope: scope};
@@ -58,12 +77,18 @@
       return this;
     },
     getDependency: function(key, cb) {
-      var modules, module;
+      var modules, module, interceptor, interceptorFunc;
 
+      interceptor = getInterceptor(this.interceptors, key);
+      if(interceptor) {
+        interceptorFunc = interceptor.cb;
+        key = interceptor.key;
+      }
       modules = this.modules;
       module = modules[key];
 
       if(module) {
+        module = intercept(module, interceptorFunc);
         cb(module);
         return;
       }
@@ -77,6 +102,7 @@
       if(!module) {
         getElement(key, null, function(element) {
           if(element) {
+            element = intercept(element, interceptorFunc);
             cb(element);
           } else {
             Util.warn('Module \'' + key + '\' not found');
@@ -91,6 +117,7 @@
           module.getType = function() { return key; };
         }
         modules[key] = module;
+        module = intercept(module, interceptorFunc);
         cb(module);
       });
 
@@ -100,10 +127,10 @@
       var dep, depName;
       var that = this; // FIXME
 
-      if(!deps) {
+      /*if(!deps) { // WTF?
         done();
         return;
-      }
+      }*/
 
       index = Util.def(index, 0);
 
@@ -139,7 +166,10 @@
         }
       });
     },
-    process: function(deps, cb) {
+    addInterceptor: function(pattern, cb) {
+      this.interceptors.push({pattern: pattern, cb: cb});
+    },
+    process: function(deps, cb) { // Can this go somewhere else?
       var i, numDeps, obj;
       if(Util.isArray(deps)) {
         for(i = 0, numDeps = deps.length; i < numDeps; i++) {
@@ -1240,6 +1270,64 @@ if (!Array.prototype.forEach) {
   };
 })();
 /**
+ * Created by Shaun on 5/31/14.
+
+  http://paulirish.com/2011/requestanimationframe-for-smart-animating/
+  http://my.opera.com/emoller/blog/2011/12/20/requestanimationframe-for-smart-er-animating
+ 
+  requestAnimationFrame polyfill by Erik Möller. fixes from Paul Irish and Tino Zijdel
+ 
+  MIT license
+ */
+
+/*(function(frameLength) {
+  'use strict';
+  var vendors = ['ms', 'moz', 'webkit', 'o'], x;
+
+  for(x = 0; x < vendors.length && !window.requestAnimationFrame; ++x) {
+    window.requestAnimationFrame = window[vendors[x]+'RequestAnimationFrame'];
+    window.cancelAnimationFrame = window[vendors[x]+'CancelAnimationFrame'] ||
+      window[vendors[x]+'CancelRequestAnimationFrame'];
+  }
+
+  if (!window.requestAnimationFrame) {
+    window.requestAnimationFrame = function(callback) {
+      return window.setTimeout(callback, frameLength);
+    };
+  }
+
+  if (!window.cancelAnimationFrame) {
+    window.cancelAnimationFrame = function(id) {
+      window.clearTimeout(id);
+    };
+  }
+})(62.5);*/
+
+(function() {
+    var lastTime = 0;
+    var vendors = ['ms', 'moz', 'webkit', 'o'];
+    for(var x = 0; x < vendors.length && !window.requestAnimationFrame; ++x) {
+        window.requestAnimationFrame = window[vendors[x]+'RequestAnimationFrame'];
+        window.cancelAnimationFrame = window[vendors[x]+'CancelAnimationFrame'] 
+                                   || window[vendors[x]+'CancelRequestAnimationFrame'];
+    }
+ 
+    if (!window.requestAnimationFrame)
+        window.requestAnimationFrame = function(callback, element) {
+            var currTime = new Date().getTime();
+            var timeToCall = Math.max(0, 16 - (currTime - lastTime));
+            var id = window.setTimeout(function() { callback(currTime + timeToCall); }, 
+              timeToCall);
+            lastTime = currTime + timeToCall;
+            return id;
+        };
+ 
+    if (!window.cancelAnimationFrame)
+        window.cancelAnimationFrame = function(id) {
+            clearTimeout(id);
+        };
+}());
+/**
  * Created by Shaun on 6/7/14.
  */
 
@@ -1456,64 +1544,6 @@ register('Scheduler', ['HashArray', 'Util'], function(HashArray, Util) {
 
   return obj;
 });
-/**
- * Created by Shaun on 5/31/14.
-
-  http://paulirish.com/2011/requestanimationframe-for-smart-animating/
-  http://my.opera.com/emoller/blog/2011/12/20/requestanimationframe-for-smart-er-animating
- 
-  requestAnimationFrame polyfill by Erik Möller. fixes from Paul Irish and Tino Zijdel
- 
-  MIT license
- */
-
-/*(function(frameLength) {
-  'use strict';
-  var vendors = ['ms', 'moz', 'webkit', 'o'], x;
-
-  for(x = 0; x < vendors.length && !window.requestAnimationFrame; ++x) {
-    window.requestAnimationFrame = window[vendors[x]+'RequestAnimationFrame'];
-    window.cancelAnimationFrame = window[vendors[x]+'CancelAnimationFrame'] ||
-      window[vendors[x]+'CancelRequestAnimationFrame'];
-  }
-
-  if (!window.requestAnimationFrame) {
-    window.requestAnimationFrame = function(callback) {
-      return window.setTimeout(callback, frameLength);
-    };
-  }
-
-  if (!window.cancelAnimationFrame) {
-    window.cancelAnimationFrame = function(id) {
-      window.clearTimeout(id);
-    };
-  }
-})(62.5);*/
-
-(function() {
-    var lastTime = 0;
-    var vendors = ['ms', 'moz', 'webkit', 'o'];
-    for(var x = 0; x < vendors.length && !window.requestAnimationFrame; ++x) {
-        window.requestAnimationFrame = window[vendors[x]+'RequestAnimationFrame'];
-        window.cancelAnimationFrame = window[vendors[x]+'CancelAnimationFrame'] 
-                                   || window[vendors[x]+'CancelRequestAnimationFrame'];
-    }
- 
-    if (!window.requestAnimationFrame)
-        window.requestAnimationFrame = function(callback, element) {
-            var currTime = new Date().getTime();
-            var timeToCall = Math.max(0, 16 - (currTime - lastTime));
-            var id = window.setTimeout(function() { callback(currTime + timeToCall); }, 
-              timeToCall);
-            lastTime = currTime + timeToCall;
-            return id;
-        };
- 
-    if (!window.cancelAnimationFrame)
-        window.cancelAnimationFrame = function(id) {
-            clearTimeout(id);
-        };
-}());
 /**
  * Created by Shaun on 11/18/2014.
  */
