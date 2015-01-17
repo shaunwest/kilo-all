@@ -31,6 +31,15 @@ gulp.task('build', function() {
     .pipe(gulp.dest('dist'));
 });
 
+gulp.task('node-build', function() {
+  var sources = jsSources.concat('src/node.js');
+  return gulp.src(sources)
+    .pipe(concat('kilo-all-node.js'))
+    .pipe(gulp.dest('dist'))
+    .pipe(uglify())
+    .pipe(rename('kilo-all-node.min.js'))
+    .pipe(gulp.dest('dist'));
+});
 /*gulp.task('test', function(cb) {
   return karma.start({
     configFile: karmaConfig,
