@@ -2,7 +2,7 @@
   "name": "kilo-all",
   "version": "0.0.1",
   "description": "Full KiloJS Library",
-  "main": "dist/kilo-all.js",
+  "main": "dist/kilo-all-node.js",
   "dependencies": {},
   "devDependencies": {
     "gulp": "^3.8.10",
