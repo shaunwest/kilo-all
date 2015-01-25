@@ -1,13 +1,12 @@
 /**
  * Created by Shaun on 5/1/14.
  *
- * TODO: create kilo-all
  */
 
 (function(id) {
   'use strict';
 
-  var core, Util, Injector, types, appConfig = {}, gids = {}, allElements, previousOwner = undefined;
+  var core, Util, Injector, types, gids = {}, allElements, previousOwner = undefined;
   var CONSOLE_ID = id;
 
   Util = {
@@ -94,7 +93,7 @@
       }
 
       if(key.indexOf('/') != -1) {
-        httpGet(key, cb);
+        this.modules.httpGet(key, cb);
         return;
       }
 
@@ -124,17 +123,11 @@
       return;
     },
     resolve: function(deps, cb, index, results) {
-      var dep, depName;
       var that = this; // FIXME
-
-      /*if(!deps) { // WTF?
-        done();
-        return;
-      }*/
 
       index = Util.def(index, 0);
 
-      depName = deps[index];
+      var depName = deps[index];
       if(!depName) {
         cb(results);
         return;
@@ -400,17 +393,24 @@
     .setModule('Injector', Injector)
     .setModule('element', getElement)
     .setModule('registerAll', registerDefinitionObject)
-    .setModule('httpGet', httpGet)
-    .setModule('appConfig', appConfig);
+    .setModule('httpGet', httpGet);
 
-  /** create global references to core */
-  if(window[id]) {
-    Util.warn('a preexisting value at namespace \'' + id + '\' has been overwritten.');
-    previousOwner = window[id];
+  /** create references to core */
+  if(typeof window !== 'undefined') {
+    if(window[id]) {
+      Util.warn('a preexisting value at namespace \'' + id + '\' has been overwritten.');
+      previousOwner = window[id];
+    }
+    window[id] = core;
+    if(!window.register) window.register = core.register;
+    if(!window.use) window.use = core.use;
   }
-  window[id] = core;
-  if(!window.register) window.register = core.register;
-  if(!window.use) window.use = core.use;
+
+  if(typeof exports !== 'undefined') {
+    exports[id] = core; 
+    exports['register'] = core.register;
+    exports['use'] = core.use;   
+  }
 
   return core;
 })('kilo');
@@ -590,65 +590,133 @@ register('HashArray', function() {
  * Created by Shaun on 5/3/14.
  */
 
-register('Http', ['Util'], function(Util) {
-  'use strict';
-
-  function parseResponse(contentType, responseText) {
-    switch(contentType) {
-      case 'application/json':
-      case 'application/json; charset=utf-8':
-        return JSON.parse(responseText);
-      default:
-        return responseText;
+if(CommonJS) {
+  kilo.register('Http', ['Util'], function(Util) {
+    function parseResponse(contentType, responseText) {
+      switch(contentType) {
+        case 'application/json':
+        case 'application/json; charset=utf-8':
+          return JSON.parse(responseText);
+        default:
+          return responseText;
+      }
     }
-  }
 
-  function get(url, contentTypeOrOnProgress, onProgress) {
-    return new Promise(function(resolve, reject) {
-      var req = new XMLHttpRequest();
+    function get(url, contentTypeOrOnProgress, onProgress) {
+      var promise = new Promise(function(resolve, reject) {
+        var req = http.request(url, function(res) {
+          var data = '';
 
-      if(Util.isFunction(contentTypeOrOnProgress)) {
-        onProgress = contentTypeOrOnProgress;
-        contentTypeOrOnProgress = null;
+          if(Util.isFunction(contentTypeOrOnProgress)) {
+            onProgress = contentTypeOrOnProgress;
+            contentTypeOrOnProgress = null;
+          }
+
+          res.setEncoding('utf8');
+
+          res.on('data', function (chunk) {
+            data += chunk;
+            if(onProgress) {
+              onProgress(chunk.length, data.length);
+            }
+          });
+
+          res.on('end', function() {
+            var contentType = res.headers['content-type'];
+            switch(res.statusCode) {
+              case 500:
+                reject({statusText: '', status: res.statusCode});
+                break;
+              case 404:
+                reject({statusText: '', status: res.statusCode});
+                break;
+              case 304:
+                resolve({data: parseResponse(contentType, data), status: res.statusCode});
+                break;
+              default:
+                resolve({data: parseResponse(contentType, data), status: res.statusCode});
+            }
+          });
+        });
+
+        req.on('error', function(e) {
+          console.log('problem with request: ' + e.message);
+          console.log('URL: ' + url);
+          reject('Network error.');
+        });
+
+        req.end();
+      });
+
+      return promise;
+    }
+
+    return {
+      get: get
+    };
+  });
+} else {
+  register('Http', ['Util'], function(Util) {
+    'use strict';
+
+    function parseResponse(contentType, responseText) {
+      switch(contentType) {
+        case 'application/json':
+        case 'application/json; charset=utf-8':
+          return JSON.parse(responseText);
+        default:
+          return responseText;
       }
+    }
 
-      if(onProgress) {
-        req.addEventListener('progress', function(event) {
-          onProgress(event.loaded, event.total);
-        }, false);
-      }
+    function get(url, contentTypeOrOnProgress, onProgress) {
+      return new Promise(function(resolve, reject) {
+        var req = new XMLHttpRequest();
 
-      req.onerror = function(event) {
-        reject(Util.error('Network error.'));
-      };
-
-      req.onload = function() {
-        var contentType = contentTypeOrOnProgress || this.getResponseHeader('content-type');
-
-        switch(this.status) {
-          case 500:
-            reject({statusText: this.statusText, status: this.status});
-            break;
-          case 404:
-            reject({statusText: this.statusText, status: this.status});
-            break;
-          case 304:
-            resolve({data: parseResponse(contentType, this.responseText), status: this.status});
-            break;
-          default:
-            resolve({data: parseResponse(contentType, this.responseText), status: this.status});
+        if(Util.isFunction(contentTypeOrOnProgress)) {
+          onProgress = contentTypeOrOnProgress;
+          contentTypeOrOnProgress = null;
         }
-      };
 
-      req.open('get', url, true);
-      req.send();
-    });
-  }
+        if(onProgress) {
+          req.addEventListener('progress', function(event) {
+            onProgress(event.loaded, event.total);
+          }, false);
+        }
 
-  return {
-    get: get
-  };
-});
+        req.onerror = function(event) {
+          reject(Util.error('Network error.'));
+        };
+
+        req.onload = function() {
+          var contentType = contentTypeOrOnProgress || this.getResponseHeader('content-type');
+
+          switch(this.status) {
+            case 500:
+              reject({statusText: this.statusText, status: this.status});
+              break;
+            case 404:
+              reject({statusText: this.statusText, status: this.status});
+              break;
+            case 304:
+              resolve({data: parseResponse(contentType, this.responseText), status: this.status});
+              break;
+            default:
+              resolve({data: parseResponse(contentType, this.responseText), status: this.status});
+          }
+        };
+
+        req.open('get', url, true);
+        req.send();
+      });
+    }
+
+    return {
+      get: get
+    };
+  });
+}
+
 
 /**
  * Created by Shaun on 7/3/14.
@@ -1083,6 +1151,95 @@ if (!Array.prototype.forEach) {
     // 8. return undefined
   };
 }
+// Production steps of ECMA-262, Edition 5, 15.4.4.19
+// Reference: http://es5.github.io/#x15.4.4.19
+if (!Array.prototype.map) {
+
+  Array.prototype.map = function(callback, thisArg) {
+
+    var T, A, k;
+
+    if (this == null) {
+      throw new TypeError(' this is null or not defined');
+    }
+
+    // 1. Let O be the result of calling ToObject passing the |this| 
+    //    value as the argument.
+    var O = Object(this);
+
+    // 2. Let lenValue be the result of calling the Get internal 
+    //    method of O with the argument "length".
+    // 3. Let len be ToUint32(lenValue).
+    var len = O.length >>> 0;
+
+    // 4. If IsCallable(callback) is false, throw a TypeError exception.
+    // See: http://es5.github.com/#x9.11
+    if (typeof callback !== 'function') {
+      throw new TypeError(callback + ' is not a function');
+    }
+
+    // 5. If thisArg was supplied, let T be thisArg; else let T be undefined.
+    if (arguments.length > 1) {
+      T = thisArg;
+    }
+
+    // 6. Let A be a new array created as if by the expression new Array(len) 
+    //    where Array is the standard built-in constructor with that name and 
+    //    len is the value of len.
+    A = new Array(len);
+
+    // 7. Let k be 0
+    k = 0;
+
+    // 8. Repeat, while k < len
+    while (k < len) {
+
+      var kValue, mappedValue;
+
+      // a. Let Pk be ToString(k).
+      //   This is implicit for LHS operands of the in operator
+      // b. Let kPresent be the result of calling the HasProperty internal 
+      //    method of O with argument Pk.
+      //   This step can be combined with c
+      // c. If kPresent is true, then
+      if (k in O) {
+
+        // i. Let kValue be the result of calling the Get internal 
+        //    method of O with argument Pk.
+        kValue = O[k];
+
+        // ii. Let mappedValue be the result of calling the Call internal 
+        //     method of callback with T as the this value and argument 
+        //     list containing kValue, k, and O.
+        mappedValue = callback.call(T, kValue, k, O);
+
+        // iii. Call the DefineOwnProperty internal method of A with arguments
+        // Pk, Property Descriptor
+        // { Value: mappedValue,
+        //   Writable: true,
+        //   Enumerable: true,
+        //   Configurable: true },
+        // and false.
+
+        // In browsers that support Object.defineProperty, use the following:
+        // Object.defineProperty(A, k, {
+        //   value: mappedValue,
+        //   writable: true,
+        //   enumerable: true,
+        //   configurable: true
+        // });
+
+        // For best browser support, use the following:
+        A[k] = mappedValue;
+      }
+      // d. Increase k by 1.
+      k++;
+    }
+
+    // 9. return A
+    return A;
+  };
+}
 (function() {
     var root;
 
@@ -1269,64 +1426,6 @@ if (!Array.prototype.forEach) {
     });
   };
 })();
-/**
- * Created by Shaun on 5/31/14.
-
-  http://paulirish.com/2011/requestanimationframe-for-smart-animating/
-  http://my.opera.com/emoller/blog/2011/12/20/requestanimationframe-for-smart-er-animating
- 
-  requestAnimationFrame polyfill by Erik Möller. fixes from Paul Irish and Tino Zijdel
- 
-  MIT license
- */
-
-/*(function(frameLength) {
-  'use strict';
-  var vendors = ['ms', 'moz', 'webkit', 'o'], x;
-
-  for(x = 0; x < vendors.length && !window.requestAnimationFrame; ++x) {
-    window.requestAnimationFrame = window[vendors[x]+'RequestAnimationFrame'];
-    window.cancelAnimationFrame = window[vendors[x]+'CancelAnimationFrame'] ||
-      window[vendors[x]+'CancelRequestAnimationFrame'];
-  }
-
-  if (!window.requestAnimationFrame) {
-    window.requestAnimationFrame = function(callback) {
-      return window.setTimeout(callback, frameLength);
-    };
-  }
-
-  if (!window.cancelAnimationFrame) {
-    window.cancelAnimationFrame = function(id) {
-      window.clearTimeout(id);
-    };
-  }
-})(62.5);*/
-
-(function() {
-    var lastTime = 0;
-    var vendors = ['ms', 'moz', 'webkit', 'o'];
-    for(var x = 0; x < vendors.length && !window.requestAnimationFrame; ++x) {
-        window.requestAnimationFrame = window[vendors[x]+'RequestAnimationFrame'];
-        window.cancelAnimationFrame = window[vendors[x]+'CancelAnimationFrame'] 
-                                   || window[vendors[x]+'CancelRequestAnimationFrame'];
-    }
- 
-    if (!window.requestAnimationFrame)
-        window.requestAnimationFrame = function(callback, element) {
-            var currTime = new Date().getTime();
-            var timeToCall = Math.max(0, 16 - (currTime - lastTime));
-            var id = window.setTimeout(function() { callback(currTime + timeToCall); }, 
-              timeToCall);
-            lastTime = currTime + timeToCall;
-            return id;
-        };
- 
-    if (!window.cancelAnimationFrame)
-        window.cancelAnimationFrame = function(id) {
-            clearTimeout(id);
-        };
-}());
 /**
  * Created by Shaun on 6/7/14.
  */
@@ -1544,6 +1643,64 @@ register('Scheduler', ['HashArray', 'Util'], function(HashArray, Util) {
 
   return obj;
 });
+/**
+ * Created by Shaun on 5/31/14.
+
+  http://paulirish.com/2011/requestanimationframe-for-smart-animating/
+  http://my.opera.com/emoller/blog/2011/12/20/requestanimationframe-for-smart-er-animating
+ 
+  requestAnimationFrame polyfill by Erik Möller. fixes from Paul Irish and Tino Zijdel
+ 
+  MIT license
+ */
+
+/*(function(frameLength) {
+  'use strict';
+  var vendors = ['ms', 'moz', 'webkit', 'o'], x;
+
+  for(x = 0; x < vendors.length && !window.requestAnimationFrame; ++x) {
+    window.requestAnimationFrame = window[vendors[x]+'RequestAnimationFrame'];
+    window.cancelAnimationFrame = window[vendors[x]+'CancelAnimationFrame'] ||
+      window[vendors[x]+'CancelRequestAnimationFrame'];
+  }
+
+  if (!window.requestAnimationFrame) {
+    window.requestAnimationFrame = function(callback) {
+      return window.setTimeout(callback, frameLength);
+    };
+  }
+
+  if (!window.cancelAnimationFrame) {
+    window.cancelAnimationFrame = function(id) {
+      window.clearTimeout(id);
+    };
+  }
+})(62.5);*/
+
+(function() {
+    var lastTime = 0;
+    var vendors = ['ms', 'moz', 'webkit', 'o'];
+    for(var x = 0; x < vendors.length && !window.requestAnimationFrame; ++x) {
+        window.requestAnimationFrame = window[vendors[x]+'RequestAnimationFrame'];
+        window.cancelAnimationFrame = window[vendors[x]+'CancelAnimationFrame'] 
+                                   || window[vendors[x]+'CancelRequestAnimationFrame'];
+    }
+ 
+    if (!window.requestAnimationFrame)
+        window.requestAnimationFrame = function(callback, element) {
+            var currTime = new Date().getTime();
+            var timeToCall = Math.max(0, 16 - (currTime - lastTime));
+            var id = window.setTimeout(function() { callback(currTime + timeToCall); }, 
+              timeToCall);
+            lastTime = currTime + timeToCall;
+            return id;
+        };
+ 
+    if (!window.cancelAnimationFrame)
+        window.cancelAnimationFrame = function(id) {
+            clearTimeout(id);
+        };
+}());
 /**
  * Created by Shaun on 11/18/2014.
  */
