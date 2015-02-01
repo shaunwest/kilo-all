@@ -1,52 +1,52 @@
 /**
  * Created by Shaun on 5/1/14.
- *
+ * TODO:
+ * Cut down size
+ * Add promise support to Injector
  */
 
 (function(id) {
-  'use strict';
+  var //gids = {},
+    allElements, previousOwner;
 
-  var core, Util, Injector, types, gids = {}, allElements, previousOwner = undefined;
-  var CONSOLE_ID = id;
-
-  Util = {
-    isDefined: function(value) { return (typeof value !== 'undefined'); },
-    isBoolean: function(value) { return (typeof value === 'boolean'); },
-    def: function(value, defaultValue) { return (typeof value === 'undefined') ? defaultValue : value; },
-    error: function(message) { throw new Error(CONSOLE_ID + ': ' + message); },
-    warn: function(message) { Util.log('Warning: ' + message); },
-    log: function(message) { if(core.log) { console.log(CONSOLE_ID + ': ' + message); } },
-    argsToArray: function(args) { return Array.prototype.slice.call(args); },
-    getGID: function(prefix) {
-      prefix = Util.def(prefix, '');
-      gids[prefix] = Util.def(gids[prefix], 0);
-      return prefix + (++gids[prefix]);
-    },
-    rand: function(max, min) {
+  var Util = {
+    isDefined: function(value) { return typeof value != 'undefined' },
+    //isBoolean: function(value) { return typeof value == 'boolean' },
+    def: function(value, defaultValue) { return (typeof value == 'undefined') ? defaultValue : value },
+    error: function(message) { throw new Error(id + ': ' + message) },
+    warn: function(message) { Util.log('Warning: ' + message) },
+    log: function(message) { if(core.log) { console.log(id + ': ' + message) } },
+    argsToArray: function(args) { return Array.prototype.slice.call(args) },
+    //getGID: function(prefix) {
+    //  prefix = Util.def(prefix, '');
+    //  gids[prefix] = Util.def(gids[prefix], 0);
+    //  return prefix + (++gids[prefix]);
+    //},
+    rand: function(max, min) { // move to extra?
       min = min || 0;
-      if(min > max || max < min) { Util.error('rand: invalid range.'); }
+      if(min > max) { Util.error('rand: invalid range.'); }
       return Math.floor((Math.random() * (max - min + 1))) + (min);
     }
   };
 
-  types = ['Array', 'Object', 'Arguments', 'Function', 'String', 'Number', 'Date', 'RegExp', 'HTMLImageElement'];
+  var types = ['Array', 'Object', 'Boolean', 'Arguments', 'Function', 'String', 'Number', 'Date', 'RegExp']; //, 'HTMLImageElement'];
   for(var i = 0; i < types.length; i++) {
     Util['is' + types[i]] = (function(type) { 
       return function(obj) {
-        return Object.prototype.toString.call(obj) === '[object ' + type + ']';
+        return Object.prototype.toString.call(obj) == '[object ' + type + ']';
       }; 
     })(types[i]);
   }
 
   function getInterceptor(interceptors, matchString) {
-    var i, interceptor, matches;
-    for(i = 0; i < interceptors.length; i++) {
-      interceptor = interceptors[i];
+    var matches;
+    for(var i = 0; i < interceptors.length; i++) {
+      var interceptor = interceptors[i];
       if(matches = matchString.match(interceptor.pattern)) {
         return {key: matches[1], cb: interceptor.cb};
       }
     }
-    return null;
+    return {key: matchString};
   }
 
   function intercept(module, interceptorFunc) {
@@ -56,9 +56,13 @@
     return module;
   }
 
-  Injector = {
+  var Injector = {
     unresolved: {},
-    modules: {},
+    modules: {
+      'Util': Util,
+      'element': getElement,
+      'httpGet': httpGet
+    },
     interceptors: [],
     register: function(key, deps, func, scope) {
       this.unresolve(key);
@@ -71,53 +75,43 @@
       }
       return this;
     },
-    setModule: function(key, module) { // save a module without doing dependency resolution
+    // possible removal candidate (just use Injector.modules['myModule'] = ...)
+    /*setModule: function(key, module) { // save a module without doing dependency resolution
       this.modules[key] = module;
       return this;
-    },
+    },*/
     getDependency: function(key, cb) {
-      var modules, module, interceptor, interceptorFunc;
-
-      interceptor = getInterceptor(this.interceptors, key);
-      if(interceptor) {
-        interceptorFunc = interceptor.cb;
-        key = interceptor.key;
-      }
-      modules = this.modules;
-      module = modules[key];
+      var interceptor = getInterceptor(this.interceptors, key);
+      key = interceptor.key;
+      var modules = this.modules;
+      var module = modules[key];
 
       if(module) {
-        module = intercept(module, interceptorFunc);
-        cb(module);
+        cb(intercept(module, interceptor.cb));
         return;
       }
 
-      if(key.indexOf('/') != -1) {
-        this.modules.httpGet(key, cb);
+      if(key.indexOf('/') > -1) {
+        modules.httpGet(key, cb);
         return;
       }
 
       module = this.unresolved[key];
       if(!module) {
-        getElement(key, null, function(element) {
-          if(element) {
-            element = intercept(element, interceptorFunc);
-            cb(element);
-          } else {
-            Util.warn('Module \'' + key + '\' not found');
-          }
+        getElement(key, 0, function(element) {
+          (element) ?
+            cb(element = intercept(element, interceptor.cb)) :
+            Util.warn('\'' + key + '\' not found');
         });
         return;
       }
 
-      Util.log('Resolving dependencies for \'' + key + '\'');
+      Util.log('Resolving for \'' + key + '\'');
       this.resolveAndApply(module.deps, module.func, module.scope, function(module) {
-        if(Util.isObject(module)) {
-          module.getType = function() { return key; };
-        }
-        modules[key] = module;
-        module = intercept(module, interceptorFunc);
-        cb(module);
+        //if(Util.isObject(module)) { // doesn't work on mixins
+        //  module.getType = function() { return key; };
+        //}
+        cb(modules[key] = intercept(module, interceptor.cb));
       });
 
       return;
@@ -125,7 +119,7 @@
     resolve: function(deps, cb, index, results) {
       var that = this; // FIXME
 
-      index = Util.def(index, 0);
+      //index = Util.def(index, 0);
 
       var depName = deps[index];
       if(!depName) {
@@ -134,9 +128,6 @@
       }
       
       this.getDependency(depName, function(dep) {
-        if(!results) {
-          results = [];
-        }
         if(dep) {
           results.push(dep);
         } else {
@@ -147,8 +138,7 @@
       });
     },
     apply: function(args, func, scope) {
-      var result = func.apply(scope || core, args);
-      return result;
+      return func.apply(scope || core, args);
     },
     resolveAndApply: function(deps, func, scope, cb) {
       var that = this;
@@ -157,12 +147,13 @@
         if(cb && Util.isFunction(cb)) {
           cb(result);
         }
-      });
+      }, 0, []);
     },
     addInterceptor: function(pattern, cb) {
       this.interceptors.push({pattern: pattern, cb: cb});
     },
-    process: function(deps, cb) { // Can this go somewhere else?
+    // MOVE TO EXTRA?
+    /*process: function(deps, cb) {
       var i, numDeps, obj;
       if(Util.isArray(deps)) {
         for(i = 0, numDeps = deps.length; i < numDeps; i++) {
@@ -184,11 +175,12 @@
           cb(deps);
         }
       }
-    }
+    }*/
   };
 
   /** run onReady when document readyState is 'complete' */
-  function onDocumentReady(onReady) {
+  // remove, require kilo to be included at bottom of document
+  /*function onDocumentReady(onReady) {
     var readyStateCheckInterval;
     if(!onReady) return;
     if(document.readyState === 'complete') {
@@ -201,9 +193,10 @@
         }
       }, 10);
     }
-  }
+  }*/
 
-  function registerDefinitionObject(result) {
+  // move to Extra
+  /*function registerDefinitionObject(result) {
     var key;
     if(Util.isObject(result)) {
       for(key in result) {
@@ -216,77 +209,64 @@
         }
       }
     }
+  }*/
+
+  function findElements() {
+    var container = document.getElementsByTagName('html');
+    if(!container[0]) return;
+    return container[0].querySelectorAll('*');
   }
 
   // TODO: performance
   function getElement(elementId, container, cb) {
-    onDocumentReady(function(document) {
-      var i, numElements, element, elements, bracketIndex, results = [];
-      if(!container) {
-        if(!allElements) {
-          container = document.getElementsByTagName('body');
-          if(!container || !container[0]) {
-            return;
-          }
-          allElements = container[0].querySelectorAll('*');
-        }
-        elements = allElements;
-      } else {
-        elements = container.querySelectorAll('*');
-      }
+    //onDocumentReady(function(document) {
+      var results = [];
+      var elements = (!container) ? findElements() : container.querySelectorAll('*');
 
-      bracketIndex = elementId.indexOf('[]');
-      if(bracketIndex !== -1) {
+      var bracketIndex = elementId.indexOf('[]');
+      if(bracketIndex != -1) {
         elementId = elementId.substring(0, bracketIndex);
       }
-      for(i = 0, numElements = elements.length; i < numElements; i++) {
-        element = elements[i];
+      for(var i = 0, numElements = elements.length; i < numElements; i++) {
+        var element = elements[i];
         if(element.hasAttribute('data-' + elementId)) {
           results.push(element);
         }
       }
-      if(bracketIndex === -1) {
-        cb(results[0]);
-      } else {
-        cb(results);
-      }
-    }); 
+      (bracketIndex === -1) ? cb(results[0]) : cb(results);
+    //}); 
   }
 
   function parseResponse(contentType, responseText) {
+    var appJson = 'application/json';
     switch(contentType) {
-      case 'application/json':
-      case 'application/json; charset=utf-8':
+      case appJson:
+      case appJson + '; charset=utf-8':
         return JSON.parse(responseText);
       default:
         return responseText;
     }
   }
 
-  function httpGet(url, onComplete, onProgress, contentType) {
+  function httpGet(url, onComplete, contentType) {
     var req = new XMLHttpRequest();
 
-    if(onProgress) {
+    // REMOVE progress
+    /*if(onProgress) {
       req.addEventListener('progress', function(event) {
         onProgress(event.loaded, event.total);
       }, false);
-    }
+    }*/
 
     req.onerror = function(event) {
       Util.error('Network error.');
     };
 
     req.onload = function() {
+      // ALWAYS check content type?
       var contentType = contentType || this.getResponseHeader('content-type');
-      switch(this.status) {
-        case 500:
-        case 404:
-          onComplete(this.statusText, this.status);
-          break;
-        case 304:
-        default:
+      (this.status >= 400) ? onComplete(this.statusText, this.status) :
           onComplete(parseResponse(contentType, this.responseText), this.status);
-      }
     };
 
     req.open('get', url, true);
@@ -304,36 +284,68 @@
     }
   }
 
-  core = function() {};
-
-  core.use = function(depsOrFunc, funcOrScope, scope, cb) {
-    var result;
-    // one dependency
-    if(Util.isString(depsOrFunc)) {
-      Injector.resolveAndApply([depsOrFunc], funcOrScope, scope, cb);
-    }
-    // multiple dependencies
-    else if (Util.isArray(depsOrFunc)) {
-      Injector.resolveAndApply(depsOrFunc, funcOrScope, scope, cb);
-    } 
-    // no dependencies
-    else if(Util.isFunction(depsOrFunc)) {
-      result = Injector.apply([], depsOrFunc, funcOrScope);
-      if(cb) {
-        cb(result);
+  var core = {
+    use: function(depsOrFunc, funcOrScope, scope, cb) {
+      var module;
+      // no dependencies
+      if(Util.isFunction(depsOrFunc)) {
+        var result = Injector.apply([], depsOrFunc, funcOrScope);
+        if(cb) {
+          cb(result);
+        }
+      } 
+      // one dependency
+      if(Util.isString(depsOrFunc)) {
+        depsOrFunc = [depsOrFunc]; 
       }
-    }
-  };
+      // multiple dependencies
+      if (Util.isArray(depsOrFunc)) {
+        if(!funcOrScope) {
+          Injector.resolveAndApply(depsOrFunc, function(_module) {
+            module = _module;
+          });
+        } else {
+          Injector.resolveAndApply(depsOrFunc, funcOrScope, scope, cb);
+        }
+      } 
+      return module;
+    },
 
-  core.use.defer = function(depsOrFunc, funcOrScope, scope) {
+    register: function(key, depsOrFunc, funcOrScope, scope) {
+      if(Util.isFunction(depsOrFunc) || Util.isFunction(funcOrScope)) {
+        return register(key, depsOrFunc, funcOrScope, scope);
+      }
+      /*return {
+        depends: function() {
+          depsOrFunc = Util.argsToArray(arguments);
+          return this;
+        },
+        factory: function(func, scope) {
+          register(key, depsOrFunc, func, scope)
+        }
+      };*/
+    },
+
+    unresolve: function(key) {
+      Injector.unresolve(key);
+    },
+
+    noConflict: function() {
+      window[id] = previousOwner;
+      return core;
+    }
+  }
+
+  /*core.use.defer = function(depsOrFunc, funcOrScope, scope) {
     return function(cb) {
       core.use(depsOrFunc, funcOrScope, scope, cb);
     };
-  };
+  };*/
 
-  core.use.run = function(dep, scope) {
+  // TODO: try to get rid of this
+  /*core.use.run = function(dep, scope) {
     var cb, done, result;
-    var func = function() {
+    return function() {
       var args = arguments;
 
       core.use(dep, function(dep) {
@@ -357,56 +369,32 @@
         }
       };
     };
+  };*/
 
-    return func;
-  };
-
-  core.register = function(key, depsOrFunc, funcOrScope, scope) {
-    if(Util.isFunction(depsOrFunc) || Util.isFunction(funcOrScope)) {
-      return register(key, depsOrFunc, funcOrScope, scope);
-    }
-    return {
-      depends: function() {
-        depsOrFunc = Util.argsToArray(arguments);
-        return this;
-      },
-      factory: function(func, scope) {
-        register(key, depsOrFunc, func, scope)
-      }
-    };
-  };
-
-  core.unresolve = function(key) {
-    Injector.unresolve(key);
-  };
-
-  core.noConflict = function() {
-    window[id] = previousOwner;
-    return core;
-  };
-  core.onDocumentReady = onDocumentReady;
+ 
+  //core.onDocumentReady = onDocumentReady;
   core.log = true;
 
   /** add these basic modules to the injector */
-  Injector
-    .setModule('Util', Util)
-    .setModule('Injector', Injector)
-    .setModule('element', getElement)
-    .setModule('registerAll', registerDefinitionObject)
-    .setModule('httpGet', httpGet);
+  Injector.modules['Injector'] = Injector;
+    //.setModule('Util', Util)
+    //.setModule('Injector', Injector);
+    //.setModule('element', getElement)
+    //.setModule('registerAll', registerDefinitionObject)
+    //.setModule('httpGet', httpGet);
 
   /** create references to core */
-  if(typeof window !== 'undefined') {
-    if(window[id]) {
-      Util.warn('a preexisting value at namespace \'' + id + '\' has been overwritten.');
+  if(typeof window != 'undefined') {
+    //if(window[id]) {
+      //Util.warn('a preexisting value at namespace \'' + id + '\' has been overwritten.');
       previousOwner = window[id];
-    }
+    //}
     window[id] = core;
     if(!window.register) window.register = core.register;
     if(!window.use) window.use = core.use;
   }
 
-  if(typeof exports !== 'undefined') {
+  if(typeof exports != 'undefined') {
     exports[id] = core; 
     exports['register'] = core.register;
     exports['use'] = core.use;   
@@ -428,6 +416,7 @@ if(typeof exports === 'object' && typeof require === 'function') {
  * Created by Shaun on 10/18/14.
  */
 
+/* UP FOR REMOVAL!
 register('Canvas', [], function() {
   'use strict';
 
@@ -447,12 +436,13 @@ register('Canvas', [], function() {
       context.closePath();
     }
   };
-});
+});*/
 /**
  * Created by Shaun on 8/3/14.
  */
 
-register('Factory', ['Obj', 'Pool'], function(Obj, Pool) {
+// UP FOR REMOVAL
+/*register('Factory', ['Obj', 'Pool'], function(Obj, Pool) {
   'use strict';
 
   return function(TypeObject) {
@@ -461,7 +451,7 @@ register('Factory', ['Obj', 'Pool'], function(Obj, Pool) {
     var newObject = Obj.mixin([TypeObject]);
     return newObject;
   };
-});
+});*/
 /**
  * Created by Shaun on 7/6/14.
  */
@@ -1103,6 +1093,32 @@ register('Wrap', ['Obj'], function(Obj) {
 
   return Obj.wrap.bind(Obj);
 });
+use(['Injector', 'Util'], function(Injector, Util) {
+  Injector.process = function(deps, cb) {
+    var i, numDeps, obj;
+    if(Util.isArray(deps)) {
+      for(i = 0, numDeps = deps.length; i < numDeps; i++) {
+        obj = deps[i]; 
+        if(Util.isString(obj)) {
+          this.getDependency(obj, function(obj) {
+            cb(obj);
+          });
+        } else {
+          cb(obj);
+        }
+      }
+    } else {
+      if(Util.isString(deps)) {
+        this.getDependency(deps, function(deps) {
+          cb(deps);
+        });
+      } else {
+        cb(deps);
+      }
+    }
+  }
+});
+
 // Production steps of ECMA-262, Edition 5, 15.4.4.18
 // Reference: http://es5.github.io/#x15.4.4.18
 if (!Array.prototype.forEach) {

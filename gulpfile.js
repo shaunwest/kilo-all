@@ -11,7 +11,7 @@ var runSequence = require('run-sequence');
 var clean = require('gulp-clean');
 //var karmaConfig = __dirname + '/karma.conf.js';
 var jsSources = [
-  'bower_components/kilo/src/kilo.js',
+  'bower_components/kilo/kilo.js',
   'bower_components/kilo-extra/export.js',
   'bower_components/kilo-extra/src/**/*.js',
   'bower_components/kilo-scheduler/src/**/*.js',
@@ -26,20 +26,20 @@ gulp.task('clean', function() {
 gulp.task('build', function() {
   return gulp.src(jsSources)
     .pipe(concat('kilo-all.js'))
-    .pipe(gulp.dest('dist'))
+    .pipe(gulp.dest('.'))
     .pipe(uglify())
     .pipe(rename('kilo-all.min.js'))
-    .pipe(gulp.dest('dist'));
+    .pipe(gulp.dest('.'));
 });
 
 gulp.task('node-build', function() {
   var sources = jsSources.concat('src/node.js');
   return gulp.src(sources)
     .pipe(concat('kilo-all-node.js'))
-    .pipe(gulp.dest('dist'))
+    .pipe(gulp.dest('.'))
     .pipe(uglify())
     .pipe(rename('kilo-all-node.min.js'))
-    .pipe(gulp.dest('dist'));
+    .pipe(gulp.dest('.'));
 });
 /*gulp.task('test', function(cb) {
   return karma.start({
