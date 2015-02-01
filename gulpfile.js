@@ -15,7 +15,7 @@ var jsSources = [
   'bower_components/kilo-extra/export.js',
   'bower_components/kilo-extra/src/**/*.js',
   'bower_components/kilo-scheduler/src/**/*.js',
-  'bower_components/kilo-flow/src/**/*.js'
+  //'bower_components/kilo-flow/src/**/*.js'
 ];
 
 gulp.task('clean', function() {
